@@ -7,30 +7,47 @@ export default function AIKnowledgeHub() {
   const [filter, setFilter] = useState('All');
   const [search, setSearch] = useState('');
   
+  // 기본 카테고리 및 사용자 추가 카테고리 상태 관리
+  const defaultCategories = ['Prompt', 'SNS/News', 'Tech/Tips', 'Code'];
+  const [categories, setCategories] = useState(() => {
+    const saved = localStorage.getItem('ai_hub_categories');
+    return saved ? JSON.parse(saved) : defaultCategories;
+  });
+
   // 폼 상태
-  const [editingId, setEditingId] = useState(null); // 수정 모드 판별
+  const [editingId, setEditingId] = useState(null);
   const [newTitle, setNewTitle] = useState('');
   const [newContent, setNewContent] = useState('');
-  const [newCategory, setNewCategory] = useState('Prompt');
+  const [newCategory, setNewCategory] = useState(categories[0] || 'Prompt');
   const [newTags, setNewTags] = useState('');
   const [imagePreview, setImagePreview] = useState(null);
 
-  // 1. 데이터 불러오기 (Read)
+  // 1. 데이터 불러오기 및 카테고리 동기화
   const fetchItems = async () => {
     const { data, error } = await supabase
       .from('knowledge_hub')
       .select('*')
       .order('created_at', { ascending: false });
     
-    if (error) console.error("Error fetching data:", error);
-    else setItems(data);
+    if (error) {
+      console.error("Error fetching data:", error);
+    } else {
+      setItems(data);
+      // DB에 있는 데이터의 카테고리를 추출하여 목록에 자동 추가 (다른 기기 접속 시 유지)
+      const dataCategories = [...new Set(data.map(item => item.category))];
+      setCategories(prev => {
+        const merged = [...new Set([...prev, ...dataCategories])];
+        localStorage.setItem('ai_hub_categories', JSON.stringify(merged));
+        return merged;
+      });
+    }
   };
 
   useEffect(() => {
     fetchItems();
   }, []);
 
-  // 이미지 첨부 핸들러 (Base64 변환)
+  // 이미지 첨부 핸들러
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
     if (file) {
@@ -40,7 +57,20 @@ export default function AIKnowledgeHub() {
     }
   };
 
-  // 2. 저장 및 수정하기 (Create & Update)
+  // 새 카테고리 추가 핸들러
+  const handleAddCategory = () => {
+    const newCat = window.prompt("새로운 구분(카테고리) 이름을 입력하세요:");
+    if (newCat && newCat.trim() && !categories.includes(newCat.trim())) {
+      const updated = [...categories, newCat.trim()];
+      setCategories(updated);
+      localStorage.setItem('ai_hub_categories', JSON.stringify(updated));
+      setNewCategory(newCat.trim()); // 방금 만든 카테고리로 자동 선택
+    } else if (newCat && categories.includes(newCat.trim())) {
+      alert("이미 존재하는 카테고리입니다.");
+    }
+  };
+
+  // 2. 저장 및 수정하기
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!newTitle.trim()) return;
@@ -55,19 +85,16 @@ export default function AIKnowledgeHub() {
     };
 
     if (editingId) {
-      // 수정 (Update)
       const { error } = await supabase.from('knowledge_hub').update(payload).eq('id', editingId);
       if (!error) {
         alert('수정되었습니다.');
         setEditingId(null);
       }
     } else {
-      // 신규 추가 (Insert)
       const { error } = await supabase.from('knowledge_hub').insert([payload]);
       if (error) console.error("Insert error:", error);
     }
 
-    // 폼 초기화 및 새로고침
     setNewTitle('');
     setNewContent('');
     setNewTags('');
@@ -75,7 +102,7 @@ export default function AIKnowledgeHub() {
     fetchItems();
   };
 
-  // 3. 삭제하기 (Delete)
+  // 3. 삭제하기
   const handleDelete = async (id) => {
     if(window.confirm("정말 이 데이터를 삭제하시겠습니까?")) {
       const { error } = await supabase.from('knowledge_hub').delete().eq('id', id);
@@ -91,7 +118,7 @@ export default function AIKnowledgeHub() {
     setNewContent(item.content);
     setNewTags(item.tags ? item.tags.join(', ') : '');
     setImagePreview(item.image_url);
-    window.scrollTo({ top: 0, behavior: 'smooth' }); // 폼으로 스크롤 올리기
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const filteredItems = items.filter(item => {
@@ -131,15 +158,22 @@ export default function AIKnowledgeHub() {
             {editingId ? '지식 / 프롬프트 수정' : '새 지식 / 프롬프트 등록'}
           </h2>
           <form onSubmit={handleSubmit} className="space-y-4">
+            
+            {/* 구분(카테고리) 선택 및 추가 영역 */}
             <div>
               <label className="block text-xs font-medium text-slate-400 mb-1">구분</label>
-              <select value={newCategory} onChange={(e) => setNewCategory(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm">
-                <option value="Prompt">유용한 프롬프트</option>
-                <option value="SNS/News">SNS / 스크랩 정보</option>
-                <option value="Tech/Tips">AI 기술 & 노하우</option>
-                <option value="Code">코드 & 템플릿</option>
-              </select>
+              <div className="flex gap-2">
+                <select value={newCategory} onChange={(e) => setNewCategory(e.target.value)} className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm">
+                  {categories.map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+                <button type="button" onClick={handleAddCategory} className="bg-slate-700 hover:bg-slate-600 text-slate-200 px-3 py-2 rounded-lg text-sm transition whitespace-nowrap">
+                  + 추가
+                </button>
+              </div>
             </div>
+
             <div>
               <label className="block text-xs font-medium text-slate-400 mb-1">제목</label>
               <input type="text" required placeholder="제목을 입력하세요" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm" />
@@ -148,10 +182,19 @@ export default function AIKnowledgeHub() {
               <label className="block text-xs font-medium text-slate-400 mb-1">태그 (쉼표로 구분)</label>
               <input type="text" placeholder="Python, ChatGPT" value={newTags} onChange={(e) => setNewTags(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm" />
             </div>
+            
+            {/* 내용/프롬프트 입력란 확대 적용 */}
             <div>
               <label className="block text-xs font-medium text-slate-400 mb-1">내용 / 프롬프트</label>
-              <textarea rows="5" placeholder="내용 또는 AI 프롬프트를 입력하세요" value={newContent} onChange={(e) => setNewContent(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono" />
+              <textarea 
+                rows="10" 
+                placeholder="내용 또는 AI 프롬프트를 입력하세요" 
+                value={newContent} 
+                onChange={(e) => setNewContent(e.target.value)} 
+                className="w-full min-h-[200px] bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono" 
+              />
             </div>
+
             <div>
               <label className="block text-xs font-medium text-slate-400 mb-1">모바일 캡처 / 이미지 첨부</label>
               <input type="file" accept="image/*" onChange={handleImageUpload} className="w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-indigo-600 file:text-white hover:file:bg-indigo-500 cursor-pointer" />
@@ -170,10 +213,10 @@ export default function AIKnowledgeHub() {
           </form>
         </section>
 
-        {/* 리스트 출력 영역 */}
+        {/* 리스트 출력 영역 (필터 버튼에도 새 카테고리가 자동 반영됨) */}
         <section className="lg:col-span-2 space-y-4">
           <div className="flex gap-2 overflow-x-auto pb-2 border-b border-slate-800">
-            {['All', 'Prompt', 'SNS/News', 'Tech/Tips', 'Code'].map(cat => (
+            {['All', ...categories].map(cat => (
               <button key={cat} onClick={() => setFilter(cat)} className={`px-3 py-1.5 rounded-lg text-xs font-medium transition whitespace-nowrap ${filter === cat ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}>
                 {cat}
               </button>
