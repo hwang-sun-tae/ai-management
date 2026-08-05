@@ -1,65 +1,104 @@
-import React, { useState } from 'react';
-import { Search, Plus, Image as ImageIcon, Copy, Tag, Sparkles } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Search, Plus, Copy, Tag, Sparkles, Trash2, Edit2 } from 'lucide-react';
+import { supabase } from './supabase';
 
 export default function AIKnowledgeHub() {
-  const [items, setItems] = useState([
-    {
-      id: 1,
-      title: 'Python 자동매매 API 연결 템플릿 프롬프트',
-      category: 'Prompt',
-      tags: ['Python', 'Stock', 'API'],
-      content: '다음 요구사항에 맞춰 Python으로 한국투자증권 Open API 수집 코드를 작성해줘...',
-      imageUrl: null,
-      createdAt: '2026-08-05'
-    }
-  ]);
-
+  const [items, setItems] = useState([]);
   const [filter, setFilter] = useState('All');
   const [search, setSearch] = useState('');
+  
+  // 폼 상태
+  const [editingId, setEditingId] = useState(null); // 수정 모드 판별
   const [newTitle, setNewTitle] = useState('');
   const [newContent, setNewContent] = useState('');
   const [newCategory, setNewCategory] = useState('Prompt');
   const [newTags, setNewTags] = useState('');
   const [imagePreview, setImagePreview] = useState(null);
 
-  // 모바일 캡처 이미지 첨부 핸들러
+  // 1. 데이터 불러오기 (Read)
+  const fetchItems = async () => {
+    const { data, error } = await supabase
+      .from('knowledge_hub')
+      .select('*')
+      .order('created_at', { ascending: false });
+    
+    if (error) console.error("Error fetching data:", error);
+    else setItems(data);
+  };
+
+  useEffect(() => {
+    fetchItems();
+  }, []);
+
+  // 이미지 첨부 핸들러 (Base64 변환)
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
     if (file) {
       const reader = new FileReader();
-      reader.onloadend = () => {
-        setImagePreview(reader.result);
-      };
+      reader.onloadend = () => setImagePreview(reader.result);
       reader.readAsDataURL(file);
     }
   };
 
-  const handleAdd = (e) => {
+  // 2. 저장 및 수정하기 (Create & Update)
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!newTitle.trim()) return;
 
-    const newItem = {
-      id: Date.now(),
+    const tagArray = newTags.split(',').map(t => t.trim()).filter(Boolean);
+    const payload = {
       title: newTitle,
       category: newCategory,
-      tags: newTags.split(',').map(t => t.trim()).filter(Boolean),
+      tags: tagArray,
       content: newContent,
-      imageUrl: imagePreview,
-      createdAt: new Date().toISOString().split('T')[0]
+      image_url: imagePreview,
     };
 
-    setItems([newItem, ...items]);
+    if (editingId) {
+      // 수정 (Update)
+      const { error } = await supabase.from('knowledge_hub').update(payload).eq('id', editingId);
+      if (!error) {
+        alert('수정되었습니다.');
+        setEditingId(null);
+      }
+    } else {
+      // 신규 추가 (Insert)
+      const { error } = await supabase.from('knowledge_hub').insert([payload]);
+      if (error) console.error("Insert error:", error);
+    }
+
+    // 폼 초기화 및 새로고침
     setNewTitle('');
     setNewContent('');
     setNewTags('');
     setImagePreview(null);
+    fetchItems();
+  };
+
+  // 3. 삭제하기 (Delete)
+  const handleDelete = async (id) => {
+    if(window.confirm("정말 이 데이터를 삭제하시겠습니까?")) {
+      const { error } = await supabase.from('knowledge_hub').delete().eq('id', id);
+      if (!error) fetchItems();
+    }
+  };
+
+  // 4. 수정 모드 진입
+  const handleEdit = (item) => {
+    setEditingId(item.id);
+    setNewTitle(item.title);
+    setNewCategory(item.category);
+    setNewContent(item.content);
+    setNewTags(item.tags ? item.tags.join(', ') : '');
+    setImagePreview(item.image_url);
+    window.scrollTo({ top: 0, behavior: 'smooth' }); // 폼으로 스크롤 올리기
   };
 
   const filteredItems = items.filter(item => {
     const matchesCategory = filter === 'All' || item.category === filter;
-    const matchesSearch = item.title.toLowerCase().includes(search.toLowerCase()) || 
-                          item.content.toLowerCase().includes(search.toLowerCase()) ||
-                          item.tags.some(t => t.toLowerCase().includes(search.toLowerCase()));
+    const searchLower = search.toLowerCase();
+    const matchesSearch = (item.title && item.title.toLowerCase().includes(searchLower)) || 
+                          (item.content && item.content.toLowerCase().includes(searchLower));
     return matchesCategory && matchesSearch;
   });
 
@@ -76,7 +115,7 @@ export default function AIKnowledgeHub() {
           <Search className="absolute left-3 top-2.5 text-slate-400 w-4 h-4" />
           <input
             type="text"
-            placeholder="검색어 또는 태그..."
+            placeholder="검색어 입력..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full bg-slate-800 border border-slate-700 rounded-lg pl-9 pr-4 py-2 text-sm focus:outline-none focus:border-indigo-500"
@@ -85,19 +124,16 @@ export default function AIKnowledgeHub() {
       </header>
 
       <main className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* 입력 폼 */}
+        {/* 입력 / 수정 폼 */}
         <section className="bg-slate-800 p-6 rounded-xl border border-slate-700 h-fit">
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2 text-slate-200">
-            <Plus className="w-5 h-5 text-indigo-400" /> 새 지식 / 프롬프트 등록
+            {editingId ? <Edit2 className="w-5 h-5 text-amber-400" /> : <Plus className="w-5 h-5 text-indigo-400" />}
+            {editingId ? '지식 / 프롬프트 수정' : '새 지식 / 프롬프트 등록'}
           </h2>
-          <form onSubmit={handleAdd} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-xs font-medium text-slate-400 mb-1">구분</label>
-              <select
-                value={newCategory}
-                onChange={(e) => setNewCategory(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm"
-              >
+              <select value={newCategory} onChange={(e) => setNewCategory(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm">
                 <option value="Prompt">유용한 프롬프트</option>
                 <option value="SNS/News">SNS / 스크랩 정보</option>
                 <option value="Tech/Tips">AI 기술 & 노하우</option>
@@ -106,54 +142,31 @@ export default function AIKnowledgeHub() {
             </div>
             <div>
               <label className="block text-xs font-medium text-slate-400 mb-1">제목</label>
-              <input
-                type="text"
-                required
-                placeholder="제목을 입력하세요"
-                value={newTitle}
-                onChange={(e) => setNewTitle(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm"
-              />
+              <input type="text" required placeholder="제목을 입력하세요" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm" />
             </div>
             <div>
               <label className="block text-xs font-medium text-slate-400 mb-1">태그 (쉼표로 구분)</label>
-              <input
-                type="text"
-                placeholder="R, Python, ChatGPT, Claude"
-                value={newTags}
-                onChange={(e) => setNewTags(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm"
-              />
+              <input type="text" placeholder="Python, ChatGPT" value={newTags} onChange={(e) => setNewTags(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm" />
             </div>
             <div>
               <label className="block text-xs font-medium text-slate-400 mb-1">내용 / 프롬프트</label>
-              <textarea
-                rows="5"
-                placeholder="내용 또는 AI 프롬프트를 입력하세요"
-                value={newContent}
-                onChange={(e) => setNewContent(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono"
-              />
+              <textarea rows="5" placeholder="내용 또는 AI 프롬프트를 입력하세요" value={newContent} onChange={(e) => setNewContent(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono" />
             </div>
-            {/* 핸드폰 캡처 업로드 */}
             <div>
               <label className="block text-xs font-medium text-slate-400 mb-1">모바일 캡처 / 이미지 첨부</label>
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handleImageUpload}
-                className="w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-indigo-600 file:text-white hover:file:bg-indigo-500 cursor-pointer"
-              />
-              {imagePreview && (
-                <img src={imagePreview} alt="Preview" className="mt-2 rounded-lg max-h-40 object-cover border border-slate-700" />
+              <input type="file" accept="image/*" onChange={handleImageUpload} className="w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-indigo-600 file:text-white hover:file:bg-indigo-500 cursor-pointer" />
+              {imagePreview && <img src={imagePreview} alt="Preview" className="mt-2 rounded-lg max-h-40 object-cover border border-slate-700" />}
+            </div>
+            <div className="flex gap-2">
+              <button type="submit" className={`flex-1 text-white font-medium py-2 rounded-lg text-sm transition ${editingId ? 'bg-amber-600 hover:bg-amber-500' : 'bg-indigo-600 hover:bg-indigo-500'}`}>
+                {editingId ? '수정 완료' : '저장하기'}
+              </button>
+              {editingId && (
+                <button type="button" onClick={() => { setEditingId(null); setNewTitle(''); setNewContent(''); setNewTags(''); setImagePreview(null); }} className="flex-1 bg-slate-600 hover:bg-slate-500 text-white font-medium py-2 rounded-lg text-sm transition">
+                  취소
+                </button>
               )}
             </div>
-            <button
-              type="submit"
-              className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-2 rounded-lg text-sm transition"
-            >
-              저장하기
-            </button>
           </form>
         </section>
 
@@ -161,13 +174,7 @@ export default function AIKnowledgeHub() {
         <section className="lg:col-span-2 space-y-4">
           <div className="flex gap-2 overflow-x-auto pb-2 border-b border-slate-800">
             {['All', 'Prompt', 'SNS/News', 'Tech/Tips', 'Code'].map(cat => (
-              <button
-                key={cat}
-                onClick={() => setFilter(cat)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition whitespace-nowrap ${
-                  filter === cat ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
-                }`}
-              >
+              <button key={cat} onClick={() => setFilter(cat)} className={`px-3 py-1.5 rounded-lg text-xs font-medium transition whitespace-nowrap ${filter === cat ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}>
                 {cat}
               </button>
             ))}
@@ -175,18 +182,19 @@ export default function AIKnowledgeHub() {
 
           <div className="grid grid-cols-1 gap-4">
             {filteredItems.map(item => (
-              <div key={item.id} className="bg-slate-800 border border-slate-700 rounded-xl p-5 hover:border-slate-600 transition">
+              <div key={item.id} className="bg-slate-800 border border-slate-700 rounded-xl p-5 hover:border-slate-600 transition group">
                 <div className="flex justify-between items-start mb-2">
                   <span className="text-xs px-2.5 py-0.5 rounded-full bg-indigo-900/60 text-indigo-300 border border-indigo-700/50">
                     {item.category}
                   </span>
-                  <span className="text-xs text-slate-500">{item.createdAt}</span>
+                  <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition">
+                    <button onClick={() => handleEdit(item)} className="text-slate-400 hover:text-amber-400"><Edit2 className="w-4 h-4" /></button>
+                    <button onClick={() => handleDelete(item.id)} className="text-slate-400 hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
+                  </div>
                 </div>
                 <h3 className="text-lg font-bold text-slate-100 mb-2">{item.title}</h3>
                 
-                {item.imageUrl && (
-                  <img src={item.imageUrl} alt="Captured Screenshot" className="mb-3 rounded-lg max-h-60 object-cover border border-slate-700" />
-                )}
+                {item.image_url && <img src={item.image_url} alt="Captured Screenshot" className="mb-3 rounded-lg max-h-60 object-cover border border-slate-700" />}
 
                 <p className="text-sm text-slate-300 whitespace-pre-wrap font-mono bg-slate-900/50 p-3 rounded-lg border border-slate-800 mb-3">
                   {item.content}
@@ -195,19 +203,19 @@ export default function AIKnowledgeHub() {
                 <div className="flex justify-between items-center pt-2 border-t border-slate-800">
                   <div className="flex items-center gap-1.5 flex-wrap">
                     <Tag className="w-3.5 h-3.5 text-slate-500" />
-                    {item.tags.map((tag, idx) => (
+                    {item.tags && item.tags.map((tag, idx) => (
                       <span key={idx} className="text-xs text-slate-400">#{tag}</span>
                     ))}
                   </div>
-                  <button
-                    onClick={() => navigator.clipboard.writeText(item.content)}
-                    className="flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300"
-                  >
-                    <Copy className="w-3.5 h-3.5" /> 프롬프트 복사
+                  <button onClick={() => navigator.clipboard.writeText(item.content)} className="flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300">
+                    <Copy className="w-3.5 h-3.5" /> 복사
                   </button>
                 </div>
               </div>
             ))}
+            {filteredItems.length === 0 && (
+              <div className="text-center text-slate-500 py-10">등록된 데이터가 없습니다.</div>
+            )}
           </div>
         </section>
       </main>
