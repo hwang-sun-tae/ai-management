@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Plus, Copy, Tag, Sparkles, Trash2, Edit2, X } from 'lucide-react';
+import { Search, Plus, Copy, Tag, Sparkles, Trash2, Edit2, X, ZoomIn } from 'lucide-react';
 import { supabase } from './supabase';
 
 export default function AIKnowledgeHub() {
@@ -21,6 +21,9 @@ export default function AIKnowledgeHub() {
   const [newCategory, setNewCategory] = useState(categories[0] || 'Prompt');
   const [newTags, setNewTags] = useState('');
   const [imagePreviews, setImagePreviews] = useState([]); // 여러 이미지를 배열로 관리
+  
+  // 이미지 확대 보기(모달) 상태
+  const [selectedImage, setSelectedImage] = useState(null);
 
   // 1. 데이터 불러오기 및 카테고리 동기화
   const fetchItems = async () => {
@@ -59,7 +62,6 @@ export default function AIKnowledgeHub() {
       });
       
       Promise.all(promises).then(results => {
-        // 기존 이미지 배열에 새 이미지들 추가
         setImagePreviews(prev => [...prev, ...results]);
       });
     }
@@ -94,7 +96,6 @@ export default function AIKnowledgeHub() {
       category: newCategory,
       tags: tagArray,
       content: newContent,
-      // 여러 이미지를 배열 형태의 텍스트(JSON)로 저장. 없으면 null
       image_url: imagePreviews.length > 0 ? JSON.stringify(imagePreviews) : null,
     };
 
@@ -112,7 +113,7 @@ export default function AIKnowledgeHub() {
     setNewTitle('');
     setNewContent('');
     setNewTags('');
-    setImagePreviews([]); // 이미지 초기화
+    setImagePreviews([]); 
     fetchItems();
   };
 
@@ -132,7 +133,6 @@ export default function AIKnowledgeHub() {
     setNewContent(item.content);
     setNewTags(item.tags ? item.tags.join(', ') : '');
     
-    // DB에서 불러온 이미지 파싱 (이전 단일 이미지 데이터와의 호환성 처리)
     if (item.image_url) {
       try {
         const parsed = JSON.parse(item.image_url);
@@ -155,7 +155,7 @@ export default function AIKnowledgeHub() {
   });
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 p-4 md:p-8 font-sans">
+    <div className="min-h-screen bg-slate-900 text-slate-100 p-4 md:p-8 font-sans relative">
       <header className="max-w-6xl mx-auto mb-8 flex flex-col md:flex-row justify-between items-center gap-4 border-b border-slate-800 pb-6">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-2 text-indigo-400">
@@ -220,10 +220,8 @@ export default function AIKnowledgeHub() {
 
             <div>
               <label className="block text-xs font-medium text-slate-400 mb-1">모바일 캡처 / 여러 이미지 첨부</label>
-              {/* multiple 속성 추가로 다중 선택 가능 */}
               <input type="file" accept="image/*" multiple onChange={handleImageUpload} className="w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-indigo-600 file:text-white hover:file:bg-indigo-500 cursor-pointer" />
               
-              {/* 여러 이미지 미리보기 영역 */}
               {imagePreviews.length > 0 && (
                 <div className="flex gap-2 mt-3 overflow-x-auto pb-2">
                   {imagePreviews.map((src, idx) => (
@@ -263,7 +261,6 @@ export default function AIKnowledgeHub() {
 
           <div className="grid grid-cols-1 gap-4">
             {filteredItems.map(item => {
-              // 저장된 다중 이미지 불러오기 (기존 1장 데이터 호환)
               let displayImages = [];
               if (item.image_url) {
                 try {
@@ -281,7 +278,6 @@ export default function AIKnowledgeHub() {
                       {item.category}
                     </span>
                     
-                    {/* 모바일에서는 항상 보이고, PC(lg)에서는 마우스를 올릴 때만 보이도록 수정 */}
                     <div className="flex gap-2 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition">
                       <button onClick={() => handleEdit(item)} className="text-slate-400 hover:text-amber-400 p-1"><Edit2 className="w-4 h-4" /></button>
                       <button onClick={() => handleDelete(item.id)} className="text-slate-400 hover:text-red-400 p-1"><Trash2 className="w-4 h-4" /></button>
@@ -289,11 +285,20 @@ export default function AIKnowledgeHub() {
                   </div>
                   <h3 className="text-lg font-bold text-slate-100 mb-2">{item.title}</h3>
                   
-                  {/* 여러 이미지 출력 처리 */}
+                  {/* 여러 이미지 출력 처리 및 클릭 이벤트 추가 */}
                   {displayImages.length > 0 && (
                     <div className="flex gap-2 overflow-x-auto mb-3 pb-2">
                       {displayImages.map((img, idx) => (
-                        <img key={idx} src={img} alt={`Captured ${idx}`} className="rounded-lg max-h-60 w-auto object-contain border border-slate-700" />
+                        <div key={idx} className="relative group/img cursor-pointer" onClick={() => setSelectedImage(img)}>
+                          <img 
+                            src={img} 
+                            alt={`Captured ${idx}`} 
+                            className="rounded-lg max-h-60 w-auto object-contain border border-slate-700 group-hover/img:opacity-70 transition" 
+                          />
+                          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition pointer-events-none">
+                            <ZoomIn className="w-8 h-8 text-white drop-shadow-lg" />
+                          </div>
+                        </div>
                       ))}
                     </div>
                   )}
@@ -322,6 +327,29 @@ export default function AIKnowledgeHub() {
           </div>
         </section>
       </main>
+
+      {/* 이미지 전체 화면 모달 (Lightbox) */}
+      {selectedImage && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4"
+          onClick={() => setSelectedImage(null)}
+        >
+          <div className="relative max-w-full max-h-full">
+            <button 
+              className="absolute -top-12 right-0 text-slate-300 hover:text-white transition bg-slate-800/50 rounded-full p-2"
+              onClick={() => setSelectedImage(null)}
+            >
+              <X className="w-6 h-6" />
+            </button>
+            <img 
+              src={selectedImage} 
+              alt="Full size view" 
+              className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl" 
+              onClick={(e) => e.stopPropagation()} // 이미지 클릭 시에는 안 닫히게 처리
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
