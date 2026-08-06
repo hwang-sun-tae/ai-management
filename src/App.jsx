@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Plus, Copy, Tag, Sparkles, Trash2, Edit2, X, ZoomIn } from 'lucide-react';
+import { Search, Plus, Copy, Tag, Sparkles, Trash2, Edit2, X, ZoomIn, ChevronLeft, ChevronRight } from 'lucide-react';
 import { supabase } from './supabase';
 
 export default function AIKnowledgeHub() {
@@ -7,25 +7,22 @@ export default function AIKnowledgeHub() {
   const [filter, setFilter] = useState('All');
   const [search, setSearch] = useState('');
   
-  // 기본 카테고리 및 사용자 추가 카테고리 상태 관리
   const defaultCategories = ['Prompt', 'SNS/News', 'Tech/Tips', 'Code'];
   const [categories, setCategories] = useState(() => {
     const saved = localStorage.getItem('ai_hub_categories');
     return saved ? JSON.parse(saved) : defaultCategories;
   });
 
-  // 폼 상태
   const [editingId, setEditingId] = useState(null);
   const [newTitle, setNewTitle] = useState('');
   const [newContent, setNewContent] = useState('');
   const [newCategory, setNewCategory] = useState(categories[0] || 'Prompt');
   const [newTags, setNewTags] = useState('');
-  const [imagePreviews, setImagePreviews] = useState([]); // 여러 이미지를 배열로 관리
+  const [imagePreviews, setImagePreviews] = useState([]); 
   
-  // 이미지 확대 보기(모달) 상태
-  const [selectedImage, setSelectedImage] = useState(null);
+  // 💡 다중 이미지 확대 보기(갤러리/스와이프) 상태 관리
+  const [lightbox, setLightbox] = useState({ isOpen: false, images: [], currentIndex: 0 });
 
-  // 1. 데이터 불러오기 및 카테고리 동기화
   const fetchItems = async () => {
     const { data, error } = await supabase
       .from('knowledge_hub')
@@ -49,7 +46,18 @@ export default function AIKnowledgeHub() {
     fetchItems();
   }, []);
 
-  // 다중 이미지 첨부 핸들러
+  // 모달 켜졌을 때 키보드(좌/우/ESC) 조작 지원
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (!lightbox.isOpen) return;
+      if (e.key === 'ArrowRight') nextImage();
+      if (e.key === 'ArrowLeft') prevImage();
+      if (e.key === 'Escape') closeLightbox();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [lightbox]);
+
   const handleImageUpload = (e) => {
     const files = Array.from(e.target.files);
     if (files.length > 0) {
@@ -60,19 +68,16 @@ export default function AIKnowledgeHub() {
           reader.readAsDataURL(file);
         });
       });
-      
       Promise.all(promises).then(results => {
         setImagePreviews(prev => [...prev, ...results]);
       });
     }
   };
 
-  // 첨부된 이미지 개별 삭제
   const removeImagePreview = (indexToRemove) => {
     setImagePreviews(prev => prev.filter((_, index) => index !== indexToRemove));
   };
 
-  // 새 카테고리 추가 핸들러
   const handleAddCategory = () => {
     const newCat = window.prompt("새로운 구분(카테고리) 이름을 입력하세요:");
     if (newCat && newCat.trim() && !categories.includes(newCat.trim())) {
@@ -85,7 +90,6 @@ export default function AIKnowledgeHub() {
     }
   };
 
-  // 2. 저장 및 수정하기
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!newTitle.trim()) return;
@@ -117,7 +121,6 @@ export default function AIKnowledgeHub() {
     fetchItems();
   };
 
-  // 3. 삭제하기
   const handleDelete = async (id) => {
     if(window.confirm("정말 이 데이터를 삭제하시겠습니까?")) {
       const { error } = await supabase.from('knowledge_hub').delete().eq('id', id);
@@ -125,7 +128,6 @@ export default function AIKnowledgeHub() {
     }
   };
 
-  // 4. 수정 모드 진입
   const handleEdit = (item) => {
     setEditingId(item.id);
     setNewTitle(item.title);
@@ -144,6 +146,41 @@ export default function AIKnowledgeHub() {
       setImagePreviews([]);
     }
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // 💡 모달창 이미지 탐색 기능
+  const closeLightbox = () => setLightbox({ isOpen: false, images: [], currentIndex: 0 });
+  
+  const nextImage = (e) => {
+    if (e) e.stopPropagation();
+    setLightbox(prev => ({ ...prev, currentIndex: (prev.currentIndex + 1) % prev.images.length }));
+  };
+
+  const prevImage = (e) => {
+    if (e) e.stopPropagation();
+    setLightbox(prev => ({ ...prev, currentIndex: (prev.currentIndex - 1 + prev.images.length) % prev.images.length }));
+  };
+
+  // 💡 모바일 스와이프 기능 처리
+  const [touchStart, setTouchStart] = useState(null);
+  const [touchEnd, setTouchEnd] = useState(null);
+  const minSwipeDistance = 50;
+
+  const onTouchStart = (e) => {
+    setTouchEnd(null);
+    setTouchStart(e.targetTouches[0].clientX);
+  };
+
+  const onTouchMove = (e) => setTouchEnd(e.targetTouches[0].clientX);
+
+  const onTouchEnd = () => {
+    if (!touchStart || !touchEnd) return;
+    const distance = touchStart - touchEnd;
+    const isLeftSwipe = distance > minSwipeDistance;
+    const isRightSwipe = distance < -minSwipeDistance;
+    
+    if (isLeftSwipe) nextImage();
+    if (isRightSwipe) prevImage();
   };
 
   const filteredItems = items.filter(item => {
@@ -176,7 +213,6 @@ export default function AIKnowledgeHub() {
       </header>
 
       <main className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* 입력 / 수정 폼 */}
         <section className="bg-slate-800 p-6 rounded-xl border border-slate-700 h-fit">
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2 text-slate-200">
             {editingId ? <Edit2 className="w-5 h-5 text-amber-400" /> : <Plus className="w-5 h-5 text-indigo-400" />}
@@ -249,7 +285,6 @@ export default function AIKnowledgeHub() {
           </form>
         </section>
 
-        {/* 리스트 출력 영역 */}
         <section className="lg:col-span-2 space-y-4">
           <div className="flex gap-2 overflow-x-auto pb-2 border-b border-slate-800">
             {['All', ...categories].map(cat => (
@@ -285,15 +320,15 @@ export default function AIKnowledgeHub() {
                   </div>
                   <h3 className="text-lg font-bold text-slate-100 mb-2">{item.title}</h3>
                   
-                  {/* 여러 이미지 출력 처리 및 클릭 이벤트 추가 */}
+                  {/* 목록의 이미지 클릭 시 라이트박스 열기 (전체 배열 전달) */}
                   {displayImages.length > 0 && (
                     <div className="flex gap-2 overflow-x-auto mb-3 pb-2">
                       {displayImages.map((img, idx) => (
-                        <div key={idx} className="relative group/img cursor-pointer" onClick={() => setSelectedImage(img)}>
+                        <div key={idx} className="relative group/img cursor-pointer flex-shrink-0" onClick={() => setLightbox({ isOpen: true, images: displayImages, currentIndex: idx })}>
                           <img 
                             src={img} 
                             alt={`Captured ${idx}`} 
-                            className="rounded-lg max-h-60 w-auto object-contain border border-slate-700 group-hover/img:opacity-70 transition" 
+                            className="rounded-lg h-32 md:h-48 w-auto object-cover border border-slate-700 group-hover/img:opacity-70 transition" 
                           />
                           <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition pointer-events-none">
                             <ZoomIn className="w-8 h-8 text-white drop-shadow-lg" />
@@ -328,24 +363,49 @@ export default function AIKnowledgeHub() {
         </section>
       </main>
 
-      {/* 이미지 전체 화면 모달 (Lightbox) */}
-      {selectedImage && (
+      {/* 💡 다중 이미지 지원 갤러리 모달 (스와이프, 좌우 화살표 포함) */}
+      {lightbox.isOpen && (
         <div 
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4"
-          onClick={() => setSelectedImage(null)}
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/95 select-none"
+          onClick={closeLightbox}
+          onTouchStart={onTouchStart}
+          onTouchMove={onTouchMove}
+          onTouchEnd={onTouchEnd}
         >
-          <div className="relative max-w-full max-h-full">
+          <div className="relative w-full h-full flex items-center justify-center">
+            {/* 닫기 버튼 */}
             <button 
-              className="absolute -top-12 right-0 text-slate-300 hover:text-white transition bg-slate-800/50 rounded-full p-2"
-              onClick={() => setSelectedImage(null)}
+              className="absolute top-4 right-4 md:top-8 md:right-8 text-white/70 hover:text-white transition z-50 p-2 bg-slate-800/50 rounded-full"
+              onClick={closeLightbox}
             >
-              <X className="w-6 h-6" />
+              <X className="w-8 h-8" />
             </button>
+            
+            {/* 사진이 여러 장일 때만 좌우 이동 버튼 표시 */}
+            {lightbox.images.length > 1 && (
+              <>
+                <button onClick={prevImage} className="absolute left-2 md:left-8 text-white/50 hover:text-white transition p-3 bg-slate-800/50 rounded-full z-50">
+                  <ChevronLeft className="w-8 h-8 md:w-12 md:h-12" />
+                </button>
+                <button onClick={nextImage} className="absolute right-2 md:right-8 text-white/50 hover:text-white transition p-3 bg-slate-800/50 rounded-full z-50">
+                  <ChevronRight className="w-8 h-8 md:w-12 md:h-12" />
+                </button>
+              </>
+            )}
+
+            {/* 현재 인덱스 표시 (1/3 형식) */}
+            {lightbox.images.length > 1 && (
+              <div className="absolute top-6 left-1/2 -translate-x-1/2 text-white bg-black/50 px-4 py-1 rounded-full text-sm tracking-widest font-mono">
+                {lightbox.currentIndex + 1} / {lightbox.images.length}
+              </div>
+            )}
+
+            {/* 메인 뷰어 이미지 */}
             <img 
-              src={selectedImage} 
-              alt="Full size view" 
-              className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl" 
-              onClick={(e) => e.stopPropagation()} // 이미지 클릭 시에는 안 닫히게 처리
+              src={lightbox.images[lightbox.currentIndex]} 
+              alt={`Full size ${lightbox.currentIndex}`} 
+              className="max-w-[95vw] max-h-[90vh] object-contain drop-shadow-2xl" 
+              onClick={(e) => e.stopPropagation()} 
             />
           </div>
         </div>
