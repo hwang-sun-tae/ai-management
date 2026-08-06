@@ -196,7 +196,7 @@ export default function AIKnowledgeHub() {
       <header className="max-w-6xl mx-auto mb-8 flex flex-col md:flex-row justify-between items-center gap-4 border-b border-slate-800 pb-6">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-2 text-indigo-400">
-            <Sparkles className="w-7 h-7" /> AI Knowledge & Prompt Hub
+            <Sparkles className="w-7 h-7" /> "나만의 AI"
           </h1>
           <p className="text-slate-400 text-sm mt-1">SNS 정보, 프롬프트, AI 노하우 통합 저장소</p>
         </div>
