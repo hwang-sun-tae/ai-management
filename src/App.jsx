@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Plus, Copy, Tag, Sparkles, Trash2, Edit2 } from 'lucide-react';
+import { Search, Plus, Copy, Tag, Sparkles, Trash2, Edit2, X } from 'lucide-react';
 import { supabase } from './supabase';
 
 export default function AIKnowledgeHub() {
@@ -20,7 +20,7 @@ export default function AIKnowledgeHub() {
   const [newContent, setNewContent] = useState('');
   const [newCategory, setNewCategory] = useState(categories[0] || 'Prompt');
   const [newTags, setNewTags] = useState('');
-  const [imagePreview, setImagePreview] = useState(null);
+  const [imagePreviews, setImagePreviews] = useState([]); // 여러 이미지를 배열로 관리
 
   // 1. 데이터 불러오기 및 카테고리 동기화
   const fetchItems = async () => {
@@ -33,7 +33,6 @@ export default function AIKnowledgeHub() {
       console.error("Error fetching data:", error);
     } else {
       setItems(data);
-      // DB에 있는 데이터의 카테고리를 추출하여 목록에 자동 추가 (다른 기기 접속 시 유지)
       const dataCategories = [...new Set(data.map(item => item.category))];
       setCategories(prev => {
         const merged = [...new Set([...prev, ...dataCategories])];
@@ -47,14 +46,28 @@ export default function AIKnowledgeHub() {
     fetchItems();
   }, []);
 
-  // 이미지 첨부 핸들러
+  // 다중 이미지 첨부 핸들러
   const handleImageUpload = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => setImagePreview(reader.result);
-      reader.readAsDataURL(file);
+    const files = Array.from(e.target.files);
+    if (files.length > 0) {
+      const promises = files.map(file => {
+        return new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.readAsDataURL(file);
+        });
+      });
+      
+      Promise.all(promises).then(results => {
+        // 기존 이미지 배열에 새 이미지들 추가
+        setImagePreviews(prev => [...prev, ...results]);
+      });
     }
+  };
+
+  // 첨부된 이미지 개별 삭제
+  const removeImagePreview = (indexToRemove) => {
+    setImagePreviews(prev => prev.filter((_, index) => index !== indexToRemove));
   };
 
   // 새 카테고리 추가 핸들러
@@ -64,7 +77,7 @@ export default function AIKnowledgeHub() {
       const updated = [...categories, newCat.trim()];
       setCategories(updated);
       localStorage.setItem('ai_hub_categories', JSON.stringify(updated));
-      setNewCategory(newCat.trim()); // 방금 만든 카테고리로 자동 선택
+      setNewCategory(newCat.trim());
     } else if (newCat && categories.includes(newCat.trim())) {
       alert("이미 존재하는 카테고리입니다.");
     }
@@ -81,7 +94,8 @@ export default function AIKnowledgeHub() {
       category: newCategory,
       tags: tagArray,
       content: newContent,
-      image_url: imagePreview,
+      // 여러 이미지를 배열 형태의 텍스트(JSON)로 저장. 없으면 null
+      image_url: imagePreviews.length > 0 ? JSON.stringify(imagePreviews) : null,
     };
 
     if (editingId) {
@@ -98,7 +112,7 @@ export default function AIKnowledgeHub() {
     setNewTitle('');
     setNewContent('');
     setNewTags('');
-    setImagePreview(null);
+    setImagePreviews([]); // 이미지 초기화
     fetchItems();
   };
 
@@ -117,7 +131,18 @@ export default function AIKnowledgeHub() {
     setNewCategory(item.category);
     setNewContent(item.content);
     setNewTags(item.tags ? item.tags.join(', ') : '');
-    setImagePreview(item.image_url);
+    
+    // DB에서 불러온 이미지 파싱 (이전 단일 이미지 데이터와의 호환성 처리)
+    if (item.image_url) {
+      try {
+        const parsed = JSON.parse(item.image_url);
+        setImagePreviews(Array.isArray(parsed) ? parsed : [item.image_url]);
+      } catch (e) {
+        setImagePreviews([item.image_url]);
+      }
+    } else {
+      setImagePreviews([]);
+    }
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -159,7 +184,6 @@ export default function AIKnowledgeHub() {
           </h2>
           <form onSubmit={handleSubmit} className="space-y-4">
             
-            {/* 구분(카테고리) 선택 및 추가 영역 */}
             <div>
               <label className="block text-xs font-medium text-slate-400 mb-1">구분</label>
               <div className="flex gap-2">
@@ -183,7 +207,6 @@ export default function AIKnowledgeHub() {
               <input type="text" placeholder="Python, ChatGPT" value={newTags} onChange={(e) => setNewTags(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm" />
             </div>
             
-            {/* 내용/프롬프트 입력란 확대 적용 */}
             <div>
               <label className="block text-xs font-medium text-slate-400 mb-1">내용 / 프롬프트</label>
               <textarea 
@@ -196,16 +219,31 @@ export default function AIKnowledgeHub() {
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1">모바일 캡처 / 이미지 첨부</label>
-              <input type="file" accept="image/*" onChange={handleImageUpload} className="w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-indigo-600 file:text-white hover:file:bg-indigo-500 cursor-pointer" />
-              {imagePreview && <img src={imagePreview} alt="Preview" className="mt-2 rounded-lg max-h-40 object-cover border border-slate-700" />}
+              <label className="block text-xs font-medium text-slate-400 mb-1">모바일 캡처 / 여러 이미지 첨부</label>
+              {/* multiple 속성 추가로 다중 선택 가능 */}
+              <input type="file" accept="image/*" multiple onChange={handleImageUpload} className="w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-indigo-600 file:text-white hover:file:bg-indigo-500 cursor-pointer" />
+              
+              {/* 여러 이미지 미리보기 영역 */}
+              {imagePreviews.length > 0 && (
+                <div className="flex gap-2 mt-3 overflow-x-auto pb-2">
+                  {imagePreviews.map((src, idx) => (
+                    <div key={idx} className="relative min-w-[100px] flex-shrink-0">
+                      <img src={src} alt="Preview" className="h-24 w-full object-cover rounded-lg border border-slate-700" />
+                      <button type="button" onClick={() => removeImagePreview(idx)} className="absolute -top-2 -right-2 bg-slate-800 text-slate-300 hover:text-white hover:bg-red-500 rounded-full p-1 border border-slate-600 transition">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
+            
             <div className="flex gap-2">
               <button type="submit" className={`flex-1 text-white font-medium py-2 rounded-lg text-sm transition ${editingId ? 'bg-amber-600 hover:bg-amber-500' : 'bg-indigo-600 hover:bg-indigo-500'}`}>
                 {editingId ? '수정 완료' : '저장하기'}
               </button>
               {editingId && (
-                <button type="button" onClick={() => { setEditingId(null); setNewTitle(''); setNewContent(''); setNewTags(''); setImagePreview(null); }} className="flex-1 bg-slate-600 hover:bg-slate-500 text-white font-medium py-2 rounded-lg text-sm transition">
+                <button type="button" onClick={() => { setEditingId(null); setNewTitle(''); setNewContent(''); setNewTags(''); setImagePreviews([]); }} className="flex-1 bg-slate-600 hover:bg-slate-500 text-white font-medium py-2 rounded-lg text-sm transition">
                   취소
                 </button>
               )}
@@ -213,7 +251,7 @@ export default function AIKnowledgeHub() {
           </form>
         </section>
 
-        {/* 리스트 출력 영역 (필터 버튼에도 새 카테고리가 자동 반영됨) */}
+        {/* 리스트 출력 영역 */}
         <section className="lg:col-span-2 space-y-4">
           <div className="flex gap-2 overflow-x-auto pb-2 border-b border-slate-800">
             {['All', ...categories].map(cat => (
@@ -224,38 +262,60 @@ export default function AIKnowledgeHub() {
           </div>
 
           <div className="grid grid-cols-1 gap-4">
-            {filteredItems.map(item => (
-              <div key={item.id} className="bg-slate-800 border border-slate-700 rounded-xl p-5 hover:border-slate-600 transition group">
-                <div className="flex justify-between items-start mb-2">
-                  <span className="text-xs px-2.5 py-0.5 rounded-full bg-indigo-900/60 text-indigo-300 border border-indigo-700/50">
-                    {item.category}
-                  </span>
-                  <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition">
-                    <button onClick={() => handleEdit(item)} className="text-slate-400 hover:text-amber-400"><Edit2 className="w-4 h-4" /></button>
-                    <button onClick={() => handleDelete(item.id)} className="text-slate-400 hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
+            {filteredItems.map(item => {
+              // 저장된 다중 이미지 불러오기 (기존 1장 데이터 호환)
+              let displayImages = [];
+              if (item.image_url) {
+                try {
+                  const parsed = JSON.parse(item.image_url);
+                  displayImages = Array.isArray(parsed) ? parsed : [item.image_url];
+                } catch (e) {
+                  displayImages = [item.image_url];
+                }
+              }
+
+              return (
+                <div key={item.id} className="bg-slate-800 border border-slate-700 rounded-xl p-5 hover:border-slate-600 transition group">
+                  <div className="flex justify-between items-start mb-2">
+                    <span className="text-xs px-2.5 py-0.5 rounded-full bg-indigo-900/60 text-indigo-300 border border-indigo-700/50">
+                      {item.category}
+                    </span>
+                    
+                    {/* 모바일에서는 항상 보이고, PC(lg)에서는 마우스를 올릴 때만 보이도록 수정 */}
+                    <div className="flex gap-2 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition">
+                      <button onClick={() => handleEdit(item)} className="text-slate-400 hover:text-amber-400 p-1"><Edit2 className="w-4 h-4" /></button>
+                      <button onClick={() => handleDelete(item.id)} className="text-slate-400 hover:text-red-400 p-1"><Trash2 className="w-4 h-4" /></button>
+                    </div>
+                  </div>
+                  <h3 className="text-lg font-bold text-slate-100 mb-2">{item.title}</h3>
+                  
+                  {/* 여러 이미지 출력 처리 */}
+                  {displayImages.length > 0 && (
+                    <div className="flex gap-2 overflow-x-auto mb-3 pb-2">
+                      {displayImages.map((img, idx) => (
+                        <img key={idx} src={img} alt={`Captured ${idx}`} className="rounded-lg max-h-60 w-auto object-contain border border-slate-700" />
+                      ))}
+                    </div>
+                  )}
+
+                  <p className="text-sm text-slate-300 whitespace-pre-wrap font-mono bg-slate-900/50 p-3 rounded-lg border border-slate-800 mb-3">
+                    {item.content}
+                  </p>
+
+                  <div className="flex justify-between items-center pt-2 border-t border-slate-800">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <Tag className="w-3.5 h-3.5 text-slate-500" />
+                      {item.tags && item.tags.map((tag, idx) => (
+                        <span key={idx} className="text-xs text-slate-400">#{tag}</span>
+                      ))}
+                    </div>
+                    <button onClick={() => navigator.clipboard.writeText(item.content)} className="flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300">
+                      <Copy className="w-3.5 h-3.5" /> 복사
+                    </button>
                   </div>
                 </div>
-                <h3 className="text-lg font-bold text-slate-100 mb-2">{item.title}</h3>
-                
-                {item.image_url && <img src={item.image_url} alt="Captured Screenshot" className="mb-3 rounded-lg max-h-60 object-cover border border-slate-700" />}
-
-                <p className="text-sm text-slate-300 whitespace-pre-wrap font-mono bg-slate-900/50 p-3 rounded-lg border border-slate-800 mb-3">
-                  {item.content}
-                </p>
-
-                <div className="flex justify-between items-center pt-2 border-t border-slate-800">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <Tag className="w-3.5 h-3.5 text-slate-500" />
-                    {item.tags && item.tags.map((tag, idx) => (
-                      <span key={idx} className="text-xs text-slate-400">#{tag}</span>
-                    ))}
-                  </div>
-                  <button onClick={() => navigator.clipboard.writeText(item.content)} className="flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300">
-                    <Copy className="w-3.5 h-3.5" /> 복사
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
             {filteredItems.length === 0 && (
               <div className="text-center text-slate-500 py-10">등록된 데이터가 없습니다.</div>
             )}
